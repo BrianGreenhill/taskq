@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+set -e
+
+function db_setup {
+    echo "Setting up database..."
+    pushd "$(dirname "$0")" > /dev/null
+    if [ -f ./../schema.sql ]; then
+        echo "Schema file found"
+    else
+        echo "Schema file not found"
+        return
+    fi
+    if [ -z "$(docker-compose ps -q db)" ]; then
+        echo "Database container not running. Starting..."
+        docker-compose up -d db
+        while [ -z "$(docker-compose ps -q db)" ]; do
+            echo "Waiting for database container to start..."
+            sleep 1
+        done
+        echo "Database container is running"
+    fi
+    
+    echo "Setting up database schema..."
+    schemaContents="$(<./../schema.sql)"
+    docker-compose exec db mysql -uroot -e "$schemaContents"
+    echo "Database setup completed. Access mysql with 'docker-compose exec db mysql -uroot'"
+    popd > /dev/null
+}
+
+function redis_setup {
+    echo "Setting up redis..."
+    docker-compose up -d redis
+    echo "Redis setup completed. Access redis-cli with 'docker-compose exec redis redis-cli'"
+}
+
+db_setup
+redis_setup
