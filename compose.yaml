@@ -1,0 +1,28 @@
+name: observability-stack
+
+include:
+  - ./config/databases.yaml
+  - ./config/grafana.yaml
+  - ./config/app.yaml
+
+services:
+  alloy:
+    image: grafana/alloy
+    profiles: ["alloy"]
+    network_mode: host
+    volumes:
+      - ./config/alloy:/etc/alloy
+    environment:
+      REMOTE_WRITE_HOST: mimir:9009
+      LOKI_HOST: loki:3100
+      TEMPO_HOST: tempo:4317
+    depends_on:
+      - mimir
+      - loki
+      - tempo
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --stability.level=experimental # Enable all functionality

@@ -1,0 +1,47 @@
+otelcol.receiver.otlp "taskq" {
+  http { }
+
+  output {
+    metrics = [otelcol.processor.batch.taskq.input]
+    traces = [otelcol.processor.batch.taskq.input]
+    logs = [otelcol.exporter.loki.taskq.input]
+  }
+}
+
+otelcol.processor.batch "taskq" {
+  output {
+    metrics = [otelcol.exporter.prometheus.taskq.input]
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.prometheus "taskq" {
+    forward_to = [prometheus.remote_write.mimir.receiver]
+}
+
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "localhost:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}
+
+otelcol.exporter.loki "taskq" {
+    forward_to = [loki.write.taskq.receiver]
+}
+
+prometheus.remote_write "mimir" {
+  endpoint {
+    url = "http://localhost:9009/api/v1/push"
+  }
+}
+
+loki.write "taskq" {
+    endpoint {
+        url = "http://localhost:3100/loki/api/v1/push"
+    }
+}

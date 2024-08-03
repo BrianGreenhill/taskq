@@ -1,0 +1,17 @@
+services:
+  grafana:
+    image: grafana/grafana:10.1.9
+    restart: on-failure
+    command:
+      - --config=/etc/grafana-config/grafana.ini
+    volumes:
+      - ./grafana:/etc/grafana-config
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/healthz"]
+      interval: 1s
+      start_interval: 0s
+      timeout: 10s
+      retries: 5

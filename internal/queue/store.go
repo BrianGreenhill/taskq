@@ -1,34 +1,37 @@
 package queue
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
+	"github.com/XSAM/otelsql"
 	"github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 )
 
 var ErrTaskNotFound = errors.New("task not found")
 
 type Store interface {
-	CreateTask(task Task) error
-	GetTask(id string) (*Task, error)
-	UpdateStatus(id string, status TaskStatus) error
+	CreateTask(ctx context.Context, task Task) error
+	GetTask(ctx context.Context, id string) (*Task, error)
+	UpdateStatus(ctx context.Context, id string, status TaskStatus) error
 }
 
 type MemoryStore struct{ tasks map[string]Task }
 
-func (m *MemoryStore) CreateTask(task Task) error {
+func (m *MemoryStore) CreateTask(_ context.Context, task Task) error {
 	m.tasks[task.ID.String()] = task
 	return nil
 }
 
-func (m *MemoryStore) GetTask(id string) (*Task, error) {
+func (m *MemoryStore) GetTask(_ context.Context, id string) (*Task, error) {
 	t := m.tasks[id]
 	return &t, nil
 }
 
-func (m *MemoryStore) UpdateStatus(id string, status TaskStatus) error {
+func (m *MemoryStore) UpdateStatus(_ context.Context, id string, status TaskStatus) error {
 	t, ok := m.tasks[id]
 	if !ok {
 		return ErrTaskNotFound
@@ -50,39 +53,51 @@ type Config struct {
 }
 
 func NewStore(c *Config) Store {
+	var fallback MemoryStore
 	cfg := mysql.Config{
 		User:   c.User,
 		Net:    "tcp",
 		DBName: c.DBName,
 		Addr:   c.Addr,
 	}
-	db, err := sql.Open("mysql", cfg.FormatDSN())
+	db, err := otelsql.Open("mysql", cfg.FormatDSN(), otelsql.WithAttributes(
+		semconv.DBSystemMySQL,
+	))
 	if err != nil {
 		if c.MemFallback {
-			return &MemoryStore{tasks: make(map[string]Task)}
+			return &fallback
+		}
+		panic(err)
+	}
+
+	if err = otelsql.RegisterDBStatsMetrics(db, otelsql.WithAttributes(
+		semconv.DBSystemMySQL,
+	)); err != nil {
+		if c.MemFallback {
+			return &fallback
 		}
 		panic(err)
 	}
 	return &SQLStore{db: db}
 }
 
-func (s *SQLStore) UpdateStatus(id string, status TaskStatus) error {
-	_, err := s.db.Exec("UPDATE tasks SET status = ? WHERE uuid = ?", status, id)
+func (s *SQLStore) UpdateStatus(ctx context.Context, id string, status TaskStatus) error {
+	_, err := s.db.ExecContext(ctx, "UPDATE tasks SET status = ? WHERE uuid = ?", status, id)
 	return err
 }
 
-func (s *SQLStore) CreateTask(task Task) error {
-	_, err := s.db.Exec("INSERT INTO tasks (uuid) VALUES (?)", task.ID.String())
+func (s *SQLStore) CreateTask(ctx context.Context, task Task) error {
+	_, err := s.db.ExecContext(ctx, "INSERT INTO tasks (uuid) VALUES (?)", task.ID.String())
 	return err
 }
 
-func (s *SQLStore) GetTask(id string) (*Task, error) {
+func (s *SQLStore) GetTask(ctx context.Context, id string) (*Task, error) {
 	idVal, err := uuid.Parse(id)
 	if err != nil {
 		return nil, ErrTaskNotFound
 	}
 	var task Task
-	err = s.db.QueryRow("SELECT uuid, status FROM tasks WHERE uuid = ?", idVal).Scan(&task.ID, &task.Status)
+	err = s.db.QueryRowContext(ctx, "SELECT uuid, status FROM tasks WHERE uuid = ?", idVal).Scan(&task.ID, &task.Status)
 	if err != nil {
 		return nil, ErrTaskNotFound
 	}

@@ -34,5 +34,12 @@ function redis_setup {
     echo "Redis setup completed. Access redis-cli with 'docker-compose exec redis redis-cli'"
 }
 
+function start {
+    echo "Starting services..."
+    docker-compose up -d
+    echo "Services started"
+}
+
+start
 db_setup
 redis_setup
