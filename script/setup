@@ -40,6 +40,45 @@ function start {
     echo "Services started"
 }
 
+function test {
+    pushd "$(dirname "$0")" > /dev/null
+    go build -o ./../bin/api ./../cmd/api/...
+    go build -o ./../bin/worker ./../cmd/worker/...
+    # collect PID of the processes and output
+    ./../bin/api &
+    pid_api=$!
+    ./../bin/worker &
+    pid_worker=$!
+    popd > /dev/null
+    echo "API started with PID: $pid_api"
+    echo "Worker started with PID: $pid_worker"
+    # use healthz endpoint to check if the services are running
+    while [ "$(curl -s -o /dev/null -w ''%{http_code}'' http://localhost:8080/healthz)" != "200" ]; do
+        echo "Waiting for services to start..."
+        sleep 1
+    done
+    echo "Testing requests..."
+    for i in {1..10}; do
+        id=$(curl -s -d '{"payload": "test"}' http://localhost:8080/tasks)
+        status=$(curl -s http://localhost:8080/tasks/"$id")
+
+        echo "${i}: Task ${id} status: ${status}"
+    done
+    echo "check grafana at http://localhost:3000 for metrics"
+}
+
+function exit_handler {
+    echo "Cleaning up..."
+    kill -9 $pid_api > /dev/null
+    kill -9 $pid_worker > /dev/null
+    pushd "$(dirname "$0")" > /dev/null
+    rm -rf ./../bin/*
+    popd > /dev/null
+}
+
+trap exit_handler EXIT
+
 start
 db_setup
 redis_setup
+test
